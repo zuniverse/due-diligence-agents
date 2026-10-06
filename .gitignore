@@ -1,0 +1,28 @@
+Notes.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environnements et secrets
+.venv/
+.env
+!.env.example
+
+# Outils
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+
+# Données sensibles et modèles (à adapter)
+data/
+*.gguf
