@@ -1,0 +1,10 @@
+{
+  "siren": "123456789",
+  "denomination": "Atelier Lumière SAS",
+  "adresse_siege": "40 avenue du Port, 13002 Marseille",
+  "dirigeants": ["Camille Berthier"],
+  "beneficiaires_effectifs": [
+    { "nom": "Camille Berthier", "part": 60 },
+    { "nom": "Viktor Orlenko", "part": 40 }
+  ]
+}
