@@ -25,6 +25,7 @@ def run(dossier_path: str) -> KycAssessment:
     for _ in range(8):  # garde-fou contre les boucles infinies
         ai = llm_tools.invoke(messages)
         messages.append(ai)
+        print(f"[LLM] tool_calls={[c['name'] for c in ai.tool_calls]}", file=sys.stderr)
         if not ai.tool_calls:
             break
         for call in ai.tool_calls:
@@ -33,7 +34,10 @@ def run(dossier_path: str) -> KycAssessment:
                 ToolMessage(content=json.dumps(result), tool_call_id=call["id"])
             )
 
-    return llm.with_structured_output(KycAssessment).invoke(messages)
+    # return llm.with_structured_output(KycAssessment).invoke(messages)
+    structured = llm.with_structured_output(KycAssessment)
+    result = structured.invoke(messages)
+    return KycAssessment.model_validate(result)
 
 
 if __name__ == "__main__":
