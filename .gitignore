@@ -25,3 +25,6 @@ htmlcov/
 
 # Données sensibles et modèles (à adapter)
 *.gguf
+
+# langGraph sqLite
+.checkpoints/
