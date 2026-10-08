@@ -21,3 +21,7 @@ class KycAssessment(BaseModel):
     findings: list[Finding]
     requires_human_review: bool
     rationale: str
+
+
+class Narrative(BaseModel):
+    rationale: str = Field(description="Justification en 3 à 4 phrases, en français")
