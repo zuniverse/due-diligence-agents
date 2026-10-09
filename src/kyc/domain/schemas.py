@@ -1,4 +1,6 @@
+from datetime import UTC, datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,3 +27,10 @@ class KycAssessment(BaseModel):
 
 class Narrative(BaseModel):
     rationale: str = Field(description="Justification en 3 à 4 phrases, en français")
+
+
+class ReviewDecision(BaseModel):
+    decision: Literal["approved", "rejected"]
+    reviewer: str
+    comment: str = ""
+    decided_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

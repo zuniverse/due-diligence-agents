@@ -1,0 +1,7 @@
+{
+  "siren": "123456789",
+  "denomination": "Atelier Lumière SAS",
+  "adresse_siege": "12 rue des Orfèvres, 75003 Paris",
+  "dirigeants": ["Camille Berthier"],
+  "beneficiaires_effectifs": [{ "nom": "Camille Berthier", "part": 100 }]
+}
