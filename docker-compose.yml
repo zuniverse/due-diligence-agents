@@ -1,7 +1,15 @@
 services:
   temporal:
-    image: temporalio/temporal:latest # à épingler sur une version précise pour le dépôt public
-    command: server start-dev --ip 0.0.0.0
+    image: temporalio/temporal:1.9.1
+    user: "0:0" # dev local uniquement : le volume /data appartient à root
+    command: server start-dev --ip 0.0.0.0 --db-filename /data/temporal.db
     ports:
       - "7233:7233" # API
       - "8233:8233" # interface web
+    volumes:
+      - temporal-data:/data # Avec un volume nommé, Docker stocke les données
+      # sous /var/lib/docker/volumes/kyc-agent_temporal-data/_data (accessible
+      # seulement avec les droits root).
+
+volumes:
+  temporal-data:
