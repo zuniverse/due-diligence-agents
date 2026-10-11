@@ -23,8 +23,9 @@ KYC_MODEL: str = os.getenv("KYC_MODEL", "qwen3:4b")
 llm = ChatOllama(model=KYC_MODEL, temperature=0, keep_alive="15m", reasoning=False)
 
 
-# l’état, la caisse partagée
 class CaseState(TypedDict):
+    """l’état, la caisse partagée"""
+
     dossier: dict
     registry: dict
     sanctions: dict[str, bool]
@@ -33,14 +34,14 @@ class CaseState(TypedDict):
     decision: dict
 
 
-# Poste 1, fetch_registry : va chercher la fiche officielle
 def fetch_registry(state: CaseState) -> dict:
+    """Poste 1, fetch_registry : va chercher la fiche officielle"""
     record = get_company_record.invoke({"siren": state["dossier"]["siren"]})
     return {"registry": record}
 
 
-# Poste 2, screen_people : vérifie chaque personne contre la liste de sanctions
 def screen_people(state: CaseState) -> dict:
+    """Poste 2, screen_people : vérifie chaque personne contre la liste de sanctions"""
     dossier = state["dossier"]
     names = set(dossier.get("dirigeants", []))
     names |= {b["nom"] for b in dossier.get("beneficiaires_effectifs", [])}
@@ -48,16 +49,16 @@ def screen_people(state: CaseState) -> dict:
     return {"sanctions": hits}
 
 
-# Poste 3, evaluate_rules : appelle la fonction evaluate de scoring.py, qui applique
-# les règles (adresse différente, sanction, etc.) et calcule le score. Le résultat
-# est rangé dans verdict
 def evaluate_rules(state: CaseState) -> dict:
+    """Poste 3, evaluate_rules : appelle la fonction evaluate de scoring.py, qui applique
+    les règles (adresse différente, sanction, etc.) et calcule le score. Le résultat
+    est rangé dans verdict"""
     verdict = evaluate(state["dossier"], state["registry"], state["sanctions"])
     return {"verdict": verdict.model_dump(mode="json")}
 
 
-# Poste 4, narrate : le seul poste qui appelle le modèle
 def narrate(state: CaseState) -> dict:
+    """Poste 4, narrate : le seul poste qui appelle le modèle"""
     if os.getenv("KYC_FAIL_AT") == "narrate":
         raise RuntimeError("Crash simulé avant la rédaction")
     verdict = Verdict.model_validate(state["verdict"])
@@ -79,8 +80,8 @@ def narrate(state: CaseState) -> dict:
     return {"assessment": assessment.model_dump(mode="json")}
 
 
-# Poste 5, human_review : la décision humaine
 def human_review(state: CaseState) -> dict:
+    """Poste 5, human_review : la décision humaine"""
     assessment = state["assessment"]
     if not assessment["requires_human_review"]:
         auto = ReviewDecision(
@@ -96,8 +97,8 @@ def human_review(state: CaseState) -> dict:
     return {"decision": decision.model_dump(mode="json")}
 
 
-# Partie 4 : build_graph, le plan de la chaîne
 def build_graph(checkpointer: BaseCheckpointSaver):
+    """Partie 4 : build_graph, le plan de la chaîne"""
     g = StateGraph(CaseState)
     g.add_node("fetch_registry", fetch_registry)
     g.add_node("screen_people", screen_people)
@@ -113,30 +114,31 @@ def build_graph(checkpointer: BaseCheckpointSaver):
     return g.compile(checkpointer=checkpointer)
 
 
-"""Partie 5 : les fonctions utilitaires"""
+# Partie 5 : les fonctions utilitaires
 
 
-# open_graph crée le dossier .checkpoints, ouvre la base SQLite et construit le graphe.
-# Elle renvoie le graphe et la connexion
 def open_graph() -> tuple[Any, sqlite3.Connection]:
+    """open_graph crée le dossier .checkpoints, ouvre la base SQLite et construit le graphe.
+    Elle renvoie le graphe et la connexion"""
     Path(".checkpoints").mkdir(exist_ok=True)
     conn = sqlite3.connect(".checkpoints/cases.sqlite", check_same_thread=False)
     return build_graph(SqliteSaver(conn)), conn
 
 
-# pending_interrupt répond à la question “ce dossier est-il en pause, et que doit voir le
-# relecteur ?”. Elle regarde les tâches de l’état courant, et si l’une contient une
-# interruption, elle renvoie son contenu. Sinon, elle renvoie None
 def pending_interrupt(graph: Any, config: RunnableConfig) -> Any | None:
-    """Retourne ce que le relecteur doit voir si le dossier est en pause, sinon None."""
+    """pending_interrupt répond à la question “ce dossier est-il en pause, et que doit voir le
+    relecteur ?”. Elle regarde les tâches de l’état courant, et si l’une contient une
+    interruption, elle renvoie son contenu. Sinon, elle renvoie None
+
+    Retourne ce que le relecteur doit voir si le dossier est en pause, sinon None."""
     for task in graph.get_state(config).tasks:
         if task.interrupts:
             return task.interrupts[0].value
     return None
 
 
-# advance fait tourner le graphe et affiche la progression :
 def advance(graph: Any, config: RunnableConfig, payload: Any) -> None:
+    """advance fait tourner le graphe et affiche la progression :"""
     for update in graph.stream(payload, config, stream_mode="updates"):
         for node in update:
             if node == "__interrupt__":
@@ -145,18 +147,18 @@ def advance(graph: Any, config: RunnableConfig, payload: Any) -> None:
                 print(f"[{node}] terminé", file=sys.stderr)
 
 
-"""Partie 6 : run, le chef de chantier"""
-
-# Le thread_id est l’étiquette de la caisse : c’est avec elle qu’on retrouve les
-# photos d’un dossier. run regarde où en est ce dossier
-"""Situation	          -->                     Que fait run
-Le dossier est en pause, en attente d’un humain --> Ne relance rien, signale l’attente
-Le dossier est à moitié traité (plantage) --> Envoie None, ce qui veut dire “reprends 
-à la dernière photo”
-Le dossier est nouveau --> Envoie le contenu du fichier JSON comme point de départ"""
+# Partie 6 : run, le chef de chantier
 
 
 def run(dossier_path: str, thread_id: str) -> tuple[dict, bool]:
+    """Le thread_id est l’étiquette de la caisse : c’est avec elle qu’on retrouve les
+    photos d’un dossier. run regarde où en est ce dossier
+
+    Situation	          -->                     Que fait run
+    Le dossier est en pause, en attente d’un humain --> Ne relance rien, signale l’attente
+    Le dossier est à moitié traité (plantage) --> Envoie None, ce qui veut dire “reprends
+    à la dernière photo”
+    Le dossier est nouveau --> Envoie le contenu du fichier JSON comme point de départ"""
     graph, _ = open_graph()
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
 
@@ -177,14 +179,14 @@ def run(dossier_path: str, thread_id: str) -> tuple[dict, bool]:
 
 
 if __name__ == "__main__":
-    """En résumé, ce qui se passe quand tu lances la commande
-    Tu donnes un fichier de dossier et une étiquette.
-    run regarde si cette étiquette existe déjà dans SQLite (nouveau, en panne, ou en pause).
-    Le graphe exécute les postes dans l’ordre, et une photo est prise après chacun.
-    Les trois premiers postes sont du Python pur, le quatrième appelle le modèle uniquement 
-    pour rédiger du texte.
-    Au cinquième, soit le dossier est approuvé automatiquement, soit tout s’arrête dans 
-    interrupt jusqu’à ce qu’un humain réponde."""
+    # En résumé, ce qui se passe quand tu lances la commande
+    # Tu donnes un fichier de dossier et une étiquette.
+    # run regarde si cette étiquette existe déjà dans SQLite (nouveau, en panne, ou en pause).
+    # Le graphe exécute les postes dans l’ordre, et une photo est prise après chacun.
+    # Les trois premiers postes sont du Python pur, le quatrième appelle le modèle uniquement
+    # pour rédiger du texte.
+    # Au cinquième, soit le dossier est approuvé automatiquement, soit tout s’arrête dans
+    # interrupt jusqu’à ce qu’un humain réponde.
     path = sys.argv[1]
     thread = sys.argv[2] if len(sys.argv) > 2 else Path(path).stem
     values, paused = run(path, thread)
