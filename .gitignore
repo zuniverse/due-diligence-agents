@@ -28,3 +28,6 @@ htmlcov/
 
 # langGraph sqLite
 .checkpoints/
+
+# temporalio
+.audit/

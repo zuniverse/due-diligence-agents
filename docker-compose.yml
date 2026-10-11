@@ -1,0 +1,7 @@
+services:
+  temporal:
+    image: temporalio/temporal:latest # à épingler sur une version précise pour le dépôt public
+    command: server start-dev --ip 0.0.0.0
+    ports:
+      - "7233:7233" # API
+      - "8233:8233" # interface web
