@@ -13,14 +13,17 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from kyc.domain.narrative import finalize
 from kyc.domain.prompts import NARRATIVE_SYSTEM
-from kyc.domain.schemas import KycAssessment, Narrative, ReviewDecision
+from kyc.domain.schemas import KycAssessment, ReviewDecision
 from kyc.domain.scoring import CHECKS_PERFORMED, Verdict, evaluate
 from kyc.tools import get_company_record, screen_sanctions
 
 # imports et config
 KYC_MODEL: str = os.getenv("KYC_MODEL", "qwen3:4b")
-llm = ChatOllama(model=KYC_MODEL, temperature=0, keep_alive="15m", reasoning=False)
+llm = ChatOllama(
+    model=KYC_MODEL, temperature=0, keep_alive="15m", reasoning=False, num_predict=300
+)
 
 
 class CaseState(TypedDict):
@@ -76,11 +79,14 @@ def narrate(state: CaseState) -> dict:
         ensure_ascii=False,
         indent=2,
     )
-    structured = llm.with_structured_output(Narrative, method="json_schema")
-    narrative = Narrative.model_validate(
-        structured.invoke([SystemMessage(NARRATIVE_SYSTEM), HumanMessage(facts)])
-    )
-    assessment = KycAssessment(**verdict.model_dump(), rationale=narrative.rationale)
+    reply = llm.invoke([SystemMessage(NARRATIVE_SYSTEM), HumanMessage(facts)])
+    raw = reply.content if isinstance(reply.content, str) else ""
+    rationale, used_fallback = finalize(raw, verdict)
+    if used_fallback:
+        print(
+            "[narrate] justification du modèle rejetée, texte de repli", file=sys.stderr
+        )
+    assessment = KycAssessment(**verdict.model_dump(), rationale=rationale)
     return {"assessment": assessment.model_dump(mode="json")}
 
 
