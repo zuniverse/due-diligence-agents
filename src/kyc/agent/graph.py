@@ -101,32 +101,35 @@ def human_review(state: CaseState) -> dict:
     return {"decision": decision.model_dump(mode="json")}
 
 
-def build_graph(checkpointer: BaseCheckpointSaver):
+def build_graph(checkpointer: BaseCheckpointSaver, with_review: bool = True):
     """Partie 4 : build_graph, le plan de la chaîne"""
     g = StateGraph(CaseState)
     g.add_node("fetch_registry", fetch_registry)
     g.add_node("screen_people", screen_people)
     g.add_node("evaluate_rules", evaluate_rules)
     g.add_node("narrate", narrate)
-    g.add_node("human_review", human_review)
     g.add_edge(START, "fetch_registry")
     g.add_edge("fetch_registry", "screen_people")
     g.add_edge("screen_people", "evaluate_rules")
     g.add_edge("evaluate_rules", "narrate")
-    g.add_edge("narrate", "human_review")
-    g.add_edge("human_review", END)
+    if with_review:
+        g.add_node("human_review", human_review)
+        g.add_edge("narrate", "human_review")
+        g.add_edge("human_review", END)
+    else:
+        g.add_edge("narrate", END)
     return g.compile(checkpointer=checkpointer)
 
 
 # Partie 5 : les fonctions utilitaires
 
 
-def open_graph() -> tuple[Any, sqlite3.Connection]:
+def open_graph(with_review: bool = True) -> tuple[Any, sqlite3.Connection]:
     """open_graph crée le dossier .checkpoints, ouvre la base SQLite et construit le graphe.
     Elle renvoie le graphe et la connexion"""
     Path(".checkpoints").mkdir(exist_ok=True)
     conn = sqlite3.connect(".checkpoints/cases.sqlite", check_same_thread=False)
-    return build_graph(SqliteSaver(conn)), conn
+    return build_graph(SqliteSaver(conn), with_review), conn
 
 
 def pending_interrupt(graph: Any, config: RunnableConfig) -> Any | None:
@@ -149,6 +152,27 @@ def advance(graph: Any, config: RunnableConfig, payload: Any) -> None:
                 print("[human_review] en attente de validation", file=sys.stderr)
             else:
                 print(f"[{node}] terminé", file=sys.stderr)
+
+
+def analyze(dossier: dict, thread_id: str) -> dict:
+    """Instruction sans revue humaine. Idempotente : relancée avec le même
+    thread_id, elle reprend au checkpoint ou renvoie le résultat déjà calculé."""
+    graph, conn = open_graph(with_review=False)
+    try:
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        snapshot = graph.get_state(config)
+        if snapshot.values.get("assessment"):
+            return snapshot.values["assessment"]
+        payload: dict | None
+        if snapshot.next:
+            print(f"Reprise avant le noeud : {snapshot.next}", file=sys.stderr)
+            payload = None
+        else:
+            payload = {"dossier": dossier}
+        advance(graph, config, payload)
+        return graph.get_state(config).values["assessment"]
+    finally:
+        conn.close()
 
 
 # Partie 6 : run, le chef de chantier
