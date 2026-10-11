@@ -21,7 +21,7 @@ The project is organised in three layers, plus a pure domain layer:
 | :--- | :--- | :--- |
 | Framework | LangChain | Model abstraction, tools, structured output |
 | Runtime | LangGraph | State graph, persistent checkpoints, resume after failure |
-| Workflow (planned) | Temporal | Long-running orchestration around the case (waiting for missing documents, retries) |
+| Workflow | Temporal | Long-running orchestration around the case (waiting for missing documents, retries) |
 | Harness (planned) | Deep Agents | Open-ended adverse media research delegated to a sub-agent |
 
 Case flow, as implemented:
@@ -55,7 +55,8 @@ src/kyc/
     graph.py                LangGraph case review with persistent checkpoints
     review.py               human review step (planned)
     adverse_media.py        adverse media research agent (planned)
-  workflows/                Temporal workflow (planned)
+  workflows/                Temporal workflow, activities and worker
+  cli.py                    `kyc` command to start, review and query cases
 tests/                      unit tests for the scoring rules
 ```
 
@@ -115,6 +116,21 @@ Expected output on the second run: `Reprise avant le noeud : ('narrate',)`, then
 
 Checkpoints are stored in `.checkpoints/cases.sqlite` (ignored by git).
 
+### Durable workflow (Temporal)
+
+Requires the [Temporal CLI](https://docs.temporal.io/cli). In three terminals:
+
+```bash
+temporal server start-dev
+uv run python -m kyc.workflows.worker
+uv run kyc start data/dossiers/dossier_001.json --case-id wf-1
+uv run kyc status wf-1            # awaiting_review
+uv run kyc review wf-1 rejected --reviewer paul --comment "Sanction confirmée"
+uv run kyc result wf-1
+```
+
+The workflow runs the graph in an activity, waits for the `submit_review` signal if a human must decide, then resumes the graph. After 3 days without review the case ends as `escalated`.
+
 ## What the baseline taught
 
 `baseline.py` is a hand-written tool-calling loop with no orchestration. It is kept unchanged as a reference. Compared with the graph on the same case:
@@ -130,8 +146,8 @@ Checkpoints are stored in `.checkpoints/cases.sqlite` (ignored by git).
 
 ## Status
 
-- Done: baseline agent, LangGraph case review with persistent checkpoints, deterministic scoring with unit tests.
-- Planned: human review step (pause and resume with LangGraph `interrupt`), durable workflow with Temporal, adverse media research with Deep Agents, a quality review agent, and an evaluation set with expected verdicts.
+- Done: baseline agent, LangGraph case review with persistent checkpoints, deterministic scoring with unit tests, human review step (LangGraph `interrupt`), durable Temporal workflow (review signal, 3 day timeout with escalation).
+- Planned: adverse media research with Deep Agents, a quality review agent, and an evaluation set with expected verdicts.
 
 ## Limits
 
