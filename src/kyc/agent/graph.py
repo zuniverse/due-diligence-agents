@@ -13,14 +13,14 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from kyc.domain.narrative import finalize
+from kyc.domain.narrative import LEVEL_FR, SEVERITY_FR, finalize
 from kyc.domain.prompts import NARRATIVE_SYSTEM
 from kyc.domain.schemas import KycAssessment, ReviewDecision
 from kyc.domain.scoring import CHECKS_PERFORMED, Verdict, evaluate
 from kyc.tools import get_company_record, screen_sanctions
 
 # imports et config
-KYC_MODEL: str = os.getenv("KYC_MODEL", "qwen3:4b")
+KYC_MODEL: str = os.getenv("KYC_MODEL", "gemma4:e2b")
 llm = ChatOllama(
     model=KYC_MODEL, temperature=0, keep_alive="15m", reasoning=False, num_predict=300
 )
@@ -70,11 +70,12 @@ def narrate(state: CaseState) -> dict:
             "societe": state["dossier"].get("denomination"),
             "controles_effectues": list(CHECKS_PERFORMED),
             "constats": [
-                {"categorie": f.category, "gravite": f.severity.value}
+                {"categorie": f.category, "gravite": SEVERITY_FR[f.severity.value]}
                 for f in verdict.findings
             ],
             "score": verdict.score,
-            "niveau_de_risque": verdict.risk_level.value,
+            "niveau_de_risque": LEVEL_FR[verdict.risk_level.value],
+            "relecture_humaine_requise": verdict.requires_human_review,
         },
         ensure_ascii=False,
         indent=2,
@@ -84,8 +85,10 @@ def narrate(state: CaseState) -> dict:
     rationale, used_fallback = finalize(raw, verdict)
     if used_fallback:
         print(
-            "[narrate] justification du modèle rejetée, texte de repli", file=sys.stderr
+            "[narrate] justification du modèle rejetée, texte de repli",
+            file=sys.stderr,
         )
+        print(f"[narrate] texte reçu : {raw[:400]!r}", file=sys.stderr)
     assessment = KycAssessment(**verdict.model_dump(), rationale=rationale)
     return {"assessment": assessment.model_dump(mode="json")}
 

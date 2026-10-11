@@ -22,7 +22,7 @@ SYSTEM = """Tu es un analyste KYC/KYB. Pour le dossier fourni:
 3. Fais un screening sanctions de chaque dirigeant et bénéficiaire effectif.
 Utilise les outils, n'invente aucune donnée."""
 
-KYC_MODEL: str = os.getenv("KYC_MODEL", "qwen3:4b")
+KYC_MODEL: str = os.getenv("KYC_MODEL", "gemma4:e2b")
 llm = ChatOllama(model=KYC_MODEL, temperature=0, keep_alive="15m", reasoning=False)
 llm_tools = llm.bind_tools(list(TOOLS.values()))
 
