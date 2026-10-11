@@ -15,7 +15,7 @@ from langgraph.types import interrupt
 
 from kyc.domain.prompts import NARRATIVE_SYSTEM
 from kyc.domain.schemas import KycAssessment, Narrative, ReviewDecision
-from kyc.domain.scoring import Verdict, evaluate
+from kyc.domain.scoring import CHECKS_PERFORMED, Verdict, evaluate
 from kyc.tools import get_company_record, screen_sanctions
 
 # imports et config
@@ -65,7 +65,11 @@ def narrate(state: CaseState) -> dict:
     facts = json.dumps(
         {
             "societe": state["dossier"].get("denomination"),
-            "constats": [f.model_dump(mode="json") for f in verdict.findings],
+            "controles_effectues": list(CHECKS_PERFORMED),
+            "constats": [
+                {"categorie": f.category, "gravite": f.severity.value}
+                for f in verdict.findings
+            ],
             "score": verdict.score,
             "niveau_de_risque": verdict.risk_level.value,
         },
