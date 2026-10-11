@@ -17,12 +17,12 @@ KYC (Know Your Customer) and KYB (Know Your Business) are the checks a regulated
 
 The project is organised in three layers, plus a pure domain layer:
 
-| Layer | Tool | Role in this project |
-| :--- | :--- | :--- |
-| Framework | LangChain | Model abstraction, tools, structured output |
-| Runtime | LangGraph | State graph, persistent checkpoints, resume after failure |
-| Workflow | Temporal | Long-running orchestration around the case (waiting for missing documents, retries) |
-| Harness (planned) | Deep Agents | Open-ended adverse media research delegated to a sub-agent |
+| Layer             | Tool        | Role in this project                                                                |
+| :---------------- | :---------- | :---------------------------------------------------------------------------------- |
+| Framework         | LangChain   | Model abstraction, tools, structured output                                         |
+| Runtime           | LangGraph   | State graph, persistent checkpoints, resume after failure                           |
+| Workflow          | Temporal    | Long-running orchestration around the case (waiting for missing documents, retries) |
+| Harness (planned) | Deep Agents | Open-ended adverse media research delegated to a sub-agent                          |
 
 Case flow, as implemented:
 
@@ -135,19 +135,19 @@ The workflow runs the graph in an activity, waits for the `submit_review` signal
 
 `baseline.py` is a hand-written tool-calling loop with no orchestration. It is kept unchanged as a reference. Compared with the graph on the same case:
 
-| Point | Baseline | Graph |
-| :--- | :--- | :--- |
-| Score | chosen by the model, no rule behind it | computed from explicit rules |
-| Score and risk level consistency | not guaranteed | guaranteed by code |
-| Data fidelity | the model re-types addresses | values come straight from the sources |
-| Tool calls | duplicates observed | one screening per distinct person |
-| Crash recovery | none, everything restarts | resumes at the interrupted node |
-| What varies between runs | everything | only the wording of the rationale |
+| Point                            | Baseline                               | Graph                                 |
+| :------------------------------- | :------------------------------------- | :------------------------------------ |
+| Score                            | chosen by the model, no rule behind it | computed from explicit rules          |
+| Score and risk level consistency | not guaranteed                         | guaranteed by code                    |
+| Data fidelity                    | the model re-types addresses           | values come straight from the sources |
+| Tool calls                       | duplicates observed                    | one screening per distinct person     |
+| Crash recovery                   | none, everything restarts              | resumes at the interrupted node       |
+| What varies between runs         | everything                             | only the wording of the rationale     |
 
 ## Status
 
-- Done: baseline agent, LangGraph case review with persistent checkpoints, deterministic scoring with unit tests, human review step (LangGraph `interrupt`), durable Temporal workflow (review signal, 3 day timeout with escalation).
-- Planned: adverse media research with Deep Agents, a quality review agent, and an evaluation set with expected verdicts.
+- Done: baseline agent, LangGraph case review with persistent checkpoints, deterministic scoring with unit tests, human review step (pause and resume with LangGraph `interrupt`), durable workflow with Temporal (waiting for missing documents, reminders, review by signal, timeouts, audit trail), validated rationale with deterministic fallback.
+- Planned: adverse media research with Deep Agents, a quality review agent, an evaluation set with expected verdicts, additional national company registers, and document ingestion per client folder.
 
 ## Limits
 
