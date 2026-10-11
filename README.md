@@ -9,7 +9,7 @@ KYC (Know Your Customer) and KYB (Know Your Business) are the checks a regulated
 ## Design principles
 
 1. **Deterministic checks live in code, not in the model.** Registry lookup, sanctions screening, discrepancy detection, scoring and the escalation decision are plain Python. The same case always yields the same findings and the same score.
-2. **The LLM only writes the explanation.** The model receives verified facts and produces a short rationale for a human reviewer. It cannot alter an address, a name or a score.
+2. **The LLM only writes the explanation.** The model receives verified facts and produces a short rationale for a human reviewer. It cannot alter an address, a name or a score. The rationale is validated in code (length, complete sentences, no leaked reasoning). If the model output is unusable, a deterministic fallback text built from the verdict replaces it, so nothing unreliable ever reaches the reviewer.
 3. **Every step is checkpointed.** The case is a state graph persisted after each node, so a crash resumes at the interrupted node instead of restarting from zero.
 4. **Local by default.** Models run through Ollama, so case data never leaves the machine. This matters for compliance workloads.
 
@@ -17,12 +17,12 @@ KYC (Know Your Customer) and KYB (Know Your Business) are the checks a regulated
 
 The project is organised in three layers, plus a pure domain layer:
 
-| Layer             | Tool        | Role in this project                                                                |
-| :---------------- | :---------- | :---------------------------------------------------------------------------------- |
-| Framework         | LangChain   | Model abstraction, tools, structured output                                         |
-| Runtime           | LangGraph   | State graph, persistent checkpoints, resume after failure                           |
-| Workflow          | Temporal    | Long-running orchestration around the case (waiting for missing documents, retries) |
-| Harness (planned) | Deep Agents | Open-ended adverse media research delegated to a sub-agent                          |
+| Layer             | Tool        | Role in this project                                                                                                           |
+| :---------------- | :---------- | :----------------------------------------------------------------------------------------------------------------------------- |
+| Framework         | LangChain   | Model abstraction, tools, structured output                                                                                    |
+| Runtime           | LangGraph   | State graph, persistent checkpoints, resume after failure                                                                      |
+| Workflow          | Temporal    | Durable orchestration around the case: waiting for missing documents, reminders, human review by signal, timeouts, audit trail |
+| Harness (planned) | Deep Agents | Open-ended adverse media research delegated to a sub-agent                                                                     |
 
 Case flow, as implemented:
 
@@ -38,24 +38,32 @@ fetch_registry -> screen_people -> evaluate_rules -> narrate
 
 Scoring rules live in `src/kyc/domain/scoring.py` and are unit tested without any model.
 
+Around this graph, a Temporal workflow (`src/kyc/workflows/case_review.py`) waits for the required documents (with reminders), runs the graph, notifies the reviewer, waits for the review decision (a signal), handles timeouts, and writes the audit record. The workflow state lives in the Temporal server, so a worker crash or a server restart does not lose a case in progress.
+
 ## Project layout
 
 ```
 data/                       synthetic registry, sanctions list and sample cases
+docker-compose.yml          local Temporal dev server (state kept in a volume)
 src/kyc/
   domain/
     schemas.py              Pydantic models (findings, assessment)
     scoring.py              deterministic rules and risk scoring
+    completeness.py         required documents check
     prompts.py              prompt for the rationale
+    narrative.py            rationale validation and deterministic fallback
   tools/
     registry.py             company registry lookup
     sanctions.py            sanctions screening
   agent/
     baseline.py             tool-calling agent without orchestration (reference)
     graph.py                LangGraph case review with persistent checkpoints
-    review.py               human review step (planned)
+    review.py               human review from the command line (standalone mode)
     adverse_media.py        adverse media research agent (planned)
   workflows/                Temporal workflow, activities and worker
+    case_review.py          Temporal workflow (documents, review, timeouts)
+    activities.py           activities (analysis, notifications, audit record)
+    worker.py               worker process
   cli.py                    `kyc` command to start, review and query cases
 tests/                      unit tests for the scoring rules
 ```
@@ -68,7 +76,7 @@ Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), [Ollama](https://ol
 git clone https://github.com/zuniverse/due-diligence-agents.git
 cd due-diligence-agents
 uv sync
-ollama pull qwen3:4b
+ollama pull gemma4:e2b
 ```
 
 Check that Ollama is running:
@@ -89,6 +97,33 @@ Run the baseline for comparison:
 uv run python -m kyc.agent.baseline data/dossiers/dossier_001.json
 ```
 
+### Run the durable workflow
+
+Start the local Temporal server (its state is stored in a Docker volume):
+
+```bash
+docker compose up -d
+```
+
+In one terminal, start the worker:
+
+```bash
+uv run python -m kyc.workflows.worker
+```
+
+In another terminal, drive a case:
+
+```bash
+uv run python -m kyc.cli start data/dossiers/dossier_001.json case-1 --pieces kbis statuts piece_identite
+uv run python -m kyc.cli status case-1
+uv run python -m kyc.cli decide case-1 approved --reviewer alice --comment "ok"
+uv run python -m kyc.cli result case-1
+```
+
+Omit `--pieces` (or pass fewer) to see the workflow wait for the missing documents; send them with `kyc.cli document`. The Temporal web UI is at http://localhost:8233. The audit record is written to `.audit/<case-id>.json`.
+
+`docker compose down` keeps the volume, so cases survive a server restart. `docker compose down -v` deletes it.
+
 Run the tests:
 
 ```bash
@@ -97,11 +132,21 @@ uv run pytest
 
 ### Choosing a model
 
-The model is configurable through an environment variable and defaults to `qwen3:4b`:
+The model is configurable through an environment variable and defaults to `gemma4:e2b`:
 
 ```bash
-KYC_MODEL=qwen3:8b uv run python -m kyc.agent.graph data/dossiers/dossier_001.json run-2
+KYC_MODEL=qwen3:4b-instruct uv run python -m kyc.agent.graph data/dossiers/dossier_001.json run-2
 ```
+
+#### Model choice
+
+Only the rationale is written by the model, but the choice still mattered:
+
+- `qwen3:4b` (a thinking variant) ignored the instruction to disable reasoning and put its chain of thought in the answer, truncated by the token limit. This is what motivated the validation and the fallback text.
+- `qwen3:4b-instruct` answers directly, but the text was flat and occasionally incoherent.
+- `gemma4:e2b` was kept for the quality of its French and its small footprint (`ollama ps` showed under 1 GB resident on a CPU-only machine).
+
+These observations come from a handful of runs, not a benchmark. An evaluation set to compare models on fallback rate and faithfulness is planned.
 
 ### Testing crash recovery
 
@@ -146,14 +191,16 @@ The workflow runs the graph in an activity, waits for the `submit_review` signal
 
 ## Status
 
-- Done: baseline agent, LangGraph case review with persistent checkpoints, deterministic scoring with unit tests, human review step (pause and resume with LangGraph `interrupt`), durable workflow with Temporal (waiting for missing documents, reminders, review by signal, timeouts, audit trail), validated rationale with deterministic fallback.
-- Planned: adverse media research with Deep Agents, a quality review agent, an evaluation set with expected verdicts, additional national company registers, and document ingestion per client folder.
+- Done: baseline agent, LangGraph case review with persistent checkpoints, deterministic scoring with unit tests, human review step (pause and resume with LangGraph `interrupt`), durable workflow with Temporal (missing documents, reminders, review by signal, timeouts, audit record), validated rationale with a deterministic fallback.
+- Planned: adverse media research with Deep Agents, a quality review agent, an evaluation set with expected verdicts, additional national company registers, and document ingestion from a per-client folder.
 
 ## Limits
 
 - All data is synthetic: the registry and the sanctions list are small JSON files, and sanctions matching is an exact, case-insensitive name comparison. Real screening needs fuzzy matching, aliases and licensed data sources.
 - This project does not implement any regulatory requirement and must not be used to take real onboarding decisions.
 - Small local models are less reliable than large hosted ones, which is one reason the model is kept away from every decision in the pipeline.
+- The Temporal server is the single-node development server (SQLite in a volume). A production deployment would use a Temporal cluster backed by PostgreSQL.
+- The rationale is a reading aid. Its quality varies with the model, and a fallback text replaces it when the validation fails.
 
 ## License
 
