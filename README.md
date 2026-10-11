@@ -120,7 +120,7 @@ uv run python -m kyc.cli decide case-1 approved --reviewer alice --comment "ok"
 uv run python -m kyc.cli result case-1
 ```
 
-Omit `--pieces` (or pass fewer) to see the workflow wait for the missing documents; send them with `kyc.cli document`. The Temporal web UI is at http://localhost:8233. The audit record is written to `.audit/<case-id>.json`.
+Omit `--pieces` (or pass fewer) to see the workflow wait for the missing documents; send them with `kyc.cli document`. A case that requires review waits for a `decide` command; without a decision within the review delay (5 days by default, `--review-wait` in seconds), it ends as `review_timeout`. The Temporal web UI is at http://localhost:8233. The audit record is written to `.audit/<case-id>.json`.
 
 `docker compose down` keeps the volume, so cases survive a server restart. `docker compose down -v` deletes it.
 
@@ -160,21 +160,6 @@ uv run python -m kyc.agent.graph data/dossiers/dossier_001.json crash-1
 Expected output on the second run: `Reprise avant le noeud : ('narrate',)`, then only `[narrate] terminé`.
 
 Checkpoints are stored in `.checkpoints/cases.sqlite` (ignored by git).
-
-### Durable workflow (Temporal)
-
-Requires the [Temporal CLI](https://docs.temporal.io/cli). In three terminals:
-
-```bash
-temporal server start-dev
-uv run python -m kyc.workflows.worker
-uv run kyc start data/dossiers/dossier_001.json --case-id wf-1
-uv run kyc status wf-1            # awaiting_review
-uv run kyc review wf-1 rejected --reviewer paul --comment "Sanction confirmée"
-uv run kyc result wf-1
-```
-
-The workflow runs the graph in an activity, waits for the `submit_review` signal if a human must decide, then resumes the graph. After 3 days without review the case ends as `escalated`.
 
 ## What the baseline taught
 

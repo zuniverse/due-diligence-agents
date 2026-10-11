@@ -26,8 +26,6 @@ KYC_MODEL: str = os.getenv("KYC_MODEL", "gemma4:e2b")
 llm = ChatOllama(model=KYC_MODEL, temperature=0, keep_alive="15m", reasoning=False)
 llm_tools = llm.bind_tools(list(TOOLS.values()))
 
-datetime.now().astimezone()
-
 
 def run(dossier_path: str) -> KycAssessment:
     dossier = Path(dossier_path).read_text()
