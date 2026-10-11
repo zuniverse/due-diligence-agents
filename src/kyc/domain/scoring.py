@@ -1,18 +1,47 @@
+"""Règles de scoring KYC/KYB.
+
+Module pur : aucun appel à un modèle de langage, aucune lecture de fichier.
+À données identiques, le résultat est toujours identique, ce qui le rend
+testable sans Ollama et auditable par la conformité.
+
+Les valeurs ci-dessous sont des exemples de démonstration, à fixer avec la
+conformité avant tout usage réel.
+"""
+
 from pydantic import BaseModel
 
 from kyc.domain.schemas import Finding, RiskLevel
 
-SANCTION_FLOOR = 90  # une sanction confirmée impose au moins ce score
-UNKNOWN_SIREN = 50
-ADDRESS_MISMATCH = 30
-UNKNOWN_DIRECTOR = 25
-OWNERSHIP_GAP = 20
+SANCTION_FLOOR = 90  # score minimal dès qu'une personne est sur la liste de sanctions
+UNKNOWN_SIREN = 50  # SIREN absent du registre
+ADDRESS_MISMATCH = 30  # adresse du siège différente de la fiche officielle
+UNKNOWN_DIRECTOR = 25  # dirigeant déclaré absent de la fiche officielle
+OWNERSHIP_GAP = 20  # parts des bénéficiaires effectifs différentes de 100 %
 
-HIGH_THRESHOLD = 70
-MEDIUM_THRESHOLD = 30
+HIGH_THRESHOLD = 70  # score >= 70 : risque élevé
+MEDIUM_THRESHOLD = 30  # score >= 30 : risque moyen, sinon faible
+
+# Contrôles réellement effectués par evaluate(), communiqués au modèle pour qu'il
+# n'affirme rien au-delà.
+CHECKS_PERFORMED = (
+    "registre",
+    "adresse du siège",
+    "dirigeants",
+    "sanctions",
+    "répartition du capital",
+)
 
 
 class Verdict(BaseModel):
+    """Résultat des règles de scoring pour un dossier.
+
+    Attributes:
+        findings: constats établis, avec leur catégorie, leur détail et leur gravité.
+        score: score de risque entre 0 et 100.
+        risk_level: niveau de risque déduit du score (faible, moyen, élevé).
+        requires_human_review: True dès que le niveau de risque n'est pas faible.
+    """
+
     findings: list[Finding]
     score: int
     risk_level: RiskLevel
@@ -20,10 +49,48 @@ class Verdict(BaseModel):
 
 
 def _norm(text: str | None) -> str:
+    """Normalise un texte pour une comparaison tolérante.
+
+    Passe en minuscules (casefold), réduit les espaces multiples à un seul et
+    traite None comme une chaîne vide.
+
+    Args:
+        text: texte à normaliser, éventuellement absent.
+
+    Returns:
+        Le texte normalisé, jamais None.
+    """
     return " ".join((text or "").casefold().split())
 
 
 def evaluate(dossier: dict, registry: dict, sanctions: dict[str, bool]) -> Verdict:
+    """Applique les règles de scoring à un dossier et renvoie le verdict.
+
+    Règles appliquées, dans cet ordre :
+
+    1. Chaque personne dont le résultat de screening est True produit un constat
+       de sanction de gravité élevée.
+    2. Si le SIREN est introuvable au registre : constat grave et UNKNOWN_SIREN.
+       Sinon, comparaison à la fiche officielle de l'adresse du siège
+       (ADDRESS_MISMATCH) et des dirigeants (UNKNOWN_DIRECTOR).
+    3. Si les parts des bénéficiaires effectifs ne totalisent pas 100 : OWNERSHIP_GAP.
+    4. Une sanction relève le score à SANCTION_FLOOR au minimum, puis le score est
+       plafonné à 100.
+    5. Le niveau de risque se déduit du score avec HIGH_THRESHOLD et
+       MEDIUM_THRESHOLD, et toute revue non faible demande un humain.
+
+    Args:
+        dossier: dossier déclaré par le client (siren, adresse_siege, dirigeants,
+            beneficiaires_effectifs avec leur part en pourcentage).
+        registry: fiche officielle de la société. Un dict contenant la clé "erreur"
+            signale un SIREN introuvable.
+        sanctions: résultat du screening, nom de la personne vers True si elle figure
+            sur la liste de sanctions.
+
+    Returns:
+        Un Verdict avec les constats, le score, le niveau de risque et le drapeau de
+        revue humaine.
+    """
     findings: list[Finding] = []
     score = 0
 
