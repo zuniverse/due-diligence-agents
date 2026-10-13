@@ -5,5 +5,12 @@
     "capital": 50000,
     "dirigeants": ["Camille Berthier"],
     "statut": "actif"
+  },
+  "987654321": {
+    "denomination": "Orfèvrerie Delmasse SARL",
+    "adresse_siege": "8 place Bellecour, 69002 Lyon",
+    "capital": 120000,
+    "dirigeants": ["Bastien Ferrandou"],
+    "statut": "actif"
   }
 }

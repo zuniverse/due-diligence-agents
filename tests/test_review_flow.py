@@ -41,3 +41,11 @@ def test_clean_case_is_auto_approved(graph):
     graph.invoke({"dossier": load("dossier_002.json")}, config)
     assert g.pending_interrupt(graph, config) is None
     assert graph.get_state(config).values["decision"]["reviewer"] == "automatic"
+
+
+def test_delmasse_case_is_clean_without_media(graph):
+    config = {"configurable": {"thread_id": "t3"}}
+    graph.invoke({"dossier": load("dossier_003.json")}, config)
+    values = graph.get_state(config).values
+    assert values["verdict"]["score"] == 0
+    assert values["decision"]["reviewer"] == "automatic"
